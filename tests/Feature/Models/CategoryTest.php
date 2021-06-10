@@ -104,5 +104,9 @@ class CategoryTest extends TestCase
     $deletedCategory = Category::onlyTrashed()->get();
 
     $this->assertCount(1, $deletedCategory);
+
+    $category->restore();
+
+    $this->assertNotNull(Category::find($category->id));
   }
 }

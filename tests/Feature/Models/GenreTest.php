@@ -83,5 +83,9 @@ class GenreTest extends TestCase
     $deletedGenre = Genre::onlyTrashed()->get();
 
     $this->assertCount(1, $deletedGenre);
+
+    $genre->restore();
+
+    $this->assertNotNull(Genre::find($genre->id));
   }
 }
