@@ -4,217 +4,124 @@ namespace Tests\Feature\Http\Controllers\Api;
 
 use App\Models\Genre;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
-use Illuminate\Foundation\Testing\TestResponse;
-use Illuminate\Support\Facades\Lang;
 use Tests\TestCase;
+use Tests\Traits\TestSaves;
+use Tests\Traits\TestValidations;
 
 class GenreControllerTest extends TestCase
 {
-  use DatabaseMigrations;
+  use DatabaseMigrations, TestValidations, TestSaves;
+
+  private $genre;
+
+  protected  function setUp(): void
+  {
+    parent::setUp();
+    $this->genre = factory(Genre::class)->create();
+  }
+
   public function testIndex()
   {
-    $genre = factory(Genre::class)->create();
-
     $response = $this->get(route('genres.index'));
 
     $response
       ->assertStatus(200)
-      ->assertJson([$genre->toArray()]);
+      ->assertJson([$this->genre->toArray()]);
   }
 
   public function testShow()
   {
-    $genre = factory(Genre::class)->create();
-
     $response = $this->get(
       route(
         "genres.show",
-        ["genre" => $genre->id]
+        ["genre" => $this->genre->id]
       )
     );
 
     $response
       ->assertStatus(200)
-      ->assertJson($genre->toArray());
+      ->assertJson($this->genre->toArray());
   }
 
   public function testStore()
   {
-    $response = $this->postJson(
-      route('genres.store'),
-      ["name" => "test post"]
-    );
+    $data = ["name" => "test post"];
+    $expectedData = $data + ["is_active" => true];
+    $response = $this->assertStore($data, $expectedData);
+    $response->assertJsonStructure(["created_at", "updated_at", "deleted_at"]);
 
-    $genre = Genre::find($response->json("id"));
-
-    $response
-      ->assertStatus(201)
-      ->assertJson($genre->toArray());
-    $this->assertTrue($response->json("is_active"));
-
-    $response = $this->postJson(
-      route('genres.store'),
-      [
-        "name" => "test post",
-        "is_active" => false
-      ]
-    );
-
-    $response
-      ->assertStatus(201)
-      ->assertJsonFragment([
-        "is_active" => false,
-      ]);
+    $data = ["name" => "test post 2", "is_active" => false];
+    $expectedData = $data;
+    $this->assertStore($data, $expectedData);
   }
 
   public function  testUpdate()
   {
-    $genre = factory(Genre::class)->create([
-      "name" => "test genre 1",
+    $this->genre = factory(Genre::class)->create([
+      "name" => "test genre 0",
       "is_active" => false
     ]);
 
-    $response = $this->putJson(
-      route(
-        "genres.update",
-        ["genre" => $genre->id]
-      ),
-      [
-        "name" => "test genre 2",
-        "is_active" => true
-      ]
-    );
+    $data = [
+      "name" => "test genre 1",
+      "is_active" => true
+    ];
+    $expectedData = [
+      "name" => "test genre 1",
+      "is_active" => true
+    ];
 
-    $response
-      ->assertStatus(200)
-      ->assertJsonFragment([
-        "name" => "test genre 2",
-        "is_active" => true
-      ]);
+    $response = $this->assertUpdate($data, $expectedData);
+    $response->assertJsonStructure(["created_at", "updated_at", "deleted_at"]);
   }
 
   public function testDestroy()
   {
-    $genre = factory(Genre::class)->create();
-
     $response = $this->deleteJson(
       route(
         "genres.destroy",
-        ["genre" => $genre->id]
+        ["genre" => $this->genre->id]
       )
     );
 
     $response
       ->assertStatus(204);
 
-    $this->assertNull(Genre::find($genre->id));
-    $this->assertNotNull(Genre::withTrashed()->find($genre->id));
+    $this->assertNull(Genre::find($this->genre->id));
+    $this->assertNotNull(Genre::withTrashed()->find($this->genre->id));
   }
 
   public function testInvalidData()
   {
-    $response = $this->post(
-      route('genres.store'),
-      [],
-      ["Accept" => "application/json"]
-    );
+    $data = ["name" => ""];
+    $this->assertInvalidStoreAction($data, "required");
+    $this->assertInvalidUpdateAction($data, "required");
 
-    $this->assertRequiredName($response);
+    $data = [
+      "name" => str_repeat("a", 256)
+    ];
+    $this->assertInvalidStoreAction($data, "max.string", ["max" => 255]);
+    $this->assertInvalidUpdateAction($data, "max.string", ["max" => 255]);
 
-    $response = $this->post(
-      route('genres.store'),
-      [
-        "name" => str_repeat("a", 256)
-      ],
-      ["Accept" => "application/json"]
-    );
-
-    $this->assertMaxSizeName($response);
-
-    $response = $this->post(
-      route('genres.store'),
-      [
-        "name" => "test genre",
-        "is_active" => "true"
-      ],
-      ["Accept" => "application/json"]
-    );
-
-    $this->assertTypeIsActive($response);
-
-    $genre = factory(Genre::class)->create();
-
-    $response = $this->putJson(
-      route(
-        'genres.update',
-        ['genre' => $genre->id]
-      ),
-      []
-    );
-
-    $this->assertRequiredName($response);
-
-    $response = $this->put(
-      route(
-        'genres.update',
-        ['genre' => $genre->id]
-      ),
-      [
-        "name" => str_repeat("a", 256)
-      ],
-      ["Accept" => "application/json"]
-    );
-
-    $this->assertMaxSizeName($response);
-
-    $response = $this->put(
-      route(
-        'genres.update',
-        ['genre' => $genre->id]
-      ),
-      [
-        "name" => "test genre",
-        "is_active" => "true"
-      ],
-      ["Accept" => "application/json"]
-    );
-
-    $this->assertTypeIsActive($response);
+    $data = [
+      "is_active" => "true"
+    ];
+    $this->assertInvalidStoreAction($data, "boolean");
+    $this->assertInvalidUpdateAction($data, "boolean");
   }
 
-  protected function assertRequiredName(TestResponse $response)
+  protected function routeStore()
   {
-    $response
-      ->assertStatus(422)
-      ->assertJsonValidationErrors(['name'])
-      ->assertJsonMissingValidationErrors(["is_active"])
-      ->assertJsonFragment([
-        Lang::get("validation.required", ["attribute" => "name"])
-      ]);
+    return route('genres.store');
   }
 
-  protected function assertMaxSizeName(TestResponse $response)
+  protected function routeUpdate()
   {
-    $response
-      ->assertStatus(422)
-      ->assertJsonValidationErrors(['name'])
-      ->assertJsonFragment([
-        Lang::get("validation.max.string", [
-          "attribute" => "name",
-          "max" => 255
-        ])
-      ]);
+    return route('genres.update', ["genre" => $this->genre->id]);
   }
 
-  protected function assertTypeIsActive(TestResponse $response)
+  protected function model()
   {
-    $response
-      ->assertStatus(422)
-      ->assertJsonValidationErrors(['is_active'])
-      ->assertJsonFragment([
-        Lang::get("validation.boolean", [
-          "attribute" => "is active"
-        ])
-      ]);
+    return Genre::class;
   }
 }
